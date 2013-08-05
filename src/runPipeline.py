@@ -177,6 +177,19 @@ def printConfiguration(fileName=None):
     for type in selected_programs.keys():
         configurationText.append("[" + type + "]\n")
         prog = selected_programs[type]
+
+        #If there are multiple assemblers, refer to multiple_assemblers list for program citations
+        if prog=="allassemblers" or "multassemblers":
+           for assem in multiple_assemblers:
+              (progName, citation) = utils.getProgramCitations(settings, assem)
+              configurationText.append(progName + "\n")
+              try:
+                 configurationText.append("\t" + eval("utils.Settings.%s"%(assem.replace("-", "_").upper()))+"\n")
+              except AttributeError:
+                 configurationText.append("\tUNKNOWN\n")
+                 configurationText.append("\t" + citation + "\n\n")
+           continue 
+
         if prog == None or prog == "none":
            configurationText.append("None\n\n")
         else:
@@ -245,13 +258,17 @@ except getopt.GetoptError, err:
     usage()
     sys.exit(2)
 
+
 ## always use long names, search will auto-detect abbreviations
 
 supported_programs = {}
 supported_genecallers = ["fraggenescan","metagenemark","glimmermg"]
 supported_assemblers = ["soapdenovo","newbler","ca","velvet","velvet-sc","metavelvet",\
                             "metaidba","sparseassembler","minimus"]
+#To hold multiple assemblers
+multiple_assemblers=[]
 supported_mappers = ["bowtie","bowtie2"]
+
 if nopysam:
     #need pysam for bowtie2 support
     supported_mappers = ["bowtie"]
@@ -317,6 +334,7 @@ annotate_unassembled = False
 output_programs = 0
 settings = utils.Settings(DEFAULT_KMER, multiprocessing.cpu_count() - 1, "", DEFAULT_TAXA_LEVEL)
 nofcpblast = False
+bpctgcov = False
 for o, a in opts:
     if o in ("-v","--verbose"):
         utils.Settings.VERBOSE = True
@@ -433,26 +451,63 @@ for o, a in opts:
     elif o in ("-1","--lowmem"):
         lowmem = True
     elif o in ("-a","--assembler"):
-        selected_programs["assemble"] = a.lower()
-        if selected_programs["assemble"] == "metaidba":
-            bowtie_mapping = 1
-            
-        foundit = False
-        
-        for sa in supported_assemblers:
-            if selected_programs["assemble"] not in sa:
-                continue
-            else:
-                if selected_programs["assemble"] != "velvet":
-                    #some special cases required, velvet would trigger MetaVelvet, not velvet, etc
-                    selected_programs["assemble"] = sa
-                foundit = True
-                break
-        
-        if not foundit:
-            print "!!Sorry, %s is not a supported assembler. Using SOAPdenovo instead"%(selected_programs["assemble"])
-            selected_programs["assemble"] = "soapdenovo"
 
+        assemblers=a.strip().split(',')
+	#If multiple assemblers provided, identify and insert each assembler name into a list
+        if len(assemblers)>1:
+            selected_programs["assemble"]="multassemblers"
+            for assem in assemblers:
+                for sa in supported_assemblers:
+                    if assem in sa:
+                        if assem != "velvet":
+                        #some special cases required, velvet would trigger MetaVelvet, not velvet, etc
+                            if sa not in multiple_assemblers:
+                                multiple_assemblers.append(sa)
+                        else:
+                            multiple_assemblers.append("velvet")
+                        break
+
+                    
+            if len(multiple_assemblers)==0:
+                print "!!Sorry, no supported assemblers specified. Using SOAPdenovo instead"
+                selected_programs["assemble"] = "soapdenovo"
+                
+            if "metaidba" in multiple_assemblers:
+                bowtie_mapping=1
+
+            if len(multiple_assemblers) == 1:
+                selected_programs["assemble"]=multiple_assemblers.pop()
+           # print multiple_assemblers
+           # print selected_programs["assemble"]
+
+	#If only one assembler was provided
+        else:
+            selected_programs["assemble"] = a.lower()
+            if selected_programs["assemble"] == "metaidba":
+                bowtie_mapping = 1
+            
+            foundit = False
+            
+            for sa in supported_assemblers:
+                if selected_programs["assemble"] not in sa:
+                    continue
+                else:
+                    if selected_programs["assemble"] != "velvet":
+                        #some special cases required, velvet would trigger MetaVelvet, not velvet, etc
+                        selected_programs["assemble"] = sa
+                    foundit = True
+                    break
+
+            #if the allassembler option selected, insert all supported assemblers into list for pipeline step
+            if selected_programs["assemble"] in "allassemblers":
+                selected_programs["assemble"]="allassemblers"
+                multiple_assemblers=supported_assemblers
+                bowtie_mapping=1
+                foundit=True
+            
+            if not foundit:
+                print "!!Sorry, %s is not a supported assembler. Using SOAPdenovo instead"%(selected_programs["assemble"])
+                selected_programs["assemble"] = "soapdenovo"
         
     elif o in ("-g","--genecaller"):
         selected_programs["findorfs"] = a.lower()
@@ -732,6 +787,8 @@ if __name__ == "__main__":
     import classify
     import postprocess
 
+    import shutil
+
     # initialize submodules
     preprocess.init(readlibs, skipsteps, selected_programs["assemble"], run_fastqc,filter)
     assemble.init(readlibs, skipsteps, selected_programs["assemble"], usecontigs)
@@ -766,12 +823,115 @@ if __name__ == "__main__":
        printConfiguration("%s/pipeline.run"%(settings.rundir))
        updateCounter()
 
-       pipeline_run([preprocess.Preprocess, assemble.Assemble,findorfs.FindORFS, \
-                    mapreads.MapReads, \
-                    findreps.FindRepeats, annotate.Annotate, abundance.Abundance, \
-                    fannotate.FunctionalAnnotation, scaffold.Scaffold, findscforfs.FindScaffoldORFS, \
-                    propagate.Propagate, classify.Classify, postprocess.Postprocess],\
-                    verbose = 2)
+       if(selected_programs["assemble"]!="allassemblers" and selected_programs["assemble"]!="multassemblers"):
+          pipeline_run([preprocess.Preprocess, assemble.Assemble,findorfs.FindORFS, \
+                       mapreads.MapReads, \
+                       findreps.FindRepeats, annotate.Annotate, abundance.Abundance, \
+                       fannotate.FunctionalAnnotation, scaffold.Scaffold, findscforfs.FindScaffoldORFS, \
+                       propagate.Propagate, classify.Classify, postprocess.Postprocess],\
+                       verbose = 2)
+       else:
+          #Modified pipeline to run multiple assemblers
+          pipeline_run([preprocess.Preprocess],\
+                       verbose = 2)
+          assemblerScores={}
+          bestAssembler=""
+          bestScore=0
+          mean=0
+          stdev=0
+          filereads=""
+          filereads1=""
+          filereads2=""
+          lib=readlibs[0]
+          mean=int(lib.mean)
+          stdev=int(lib.stdev)
+
+          #Calc_prob setup for interleaved reads
+          if lib.interleaved:
+              for libs in readlibs:
+                  filereads1=filereads1+"%s/Preprocess/out/lib%s.1.fastq"%(settings.rundir,libs.id)
+                  filereads2=filereads2+"%s/Preprocess/out/lib%s.2.fastq"%(settings.rundir,libs.id)
+                  if libs.id<len(readlibs):
+                      filereads1=filereads1+","
+                      filereads2=filereads2+","
+
+              filereads="-1 %s -2 %s -m %s -t %s -I %s -X %s "%(filereads1,filereads2,str(mean),str(stdev),str(mean-5*stdev),str(mean+5*stdev))
+          #Calc_prob setup for unpaired reads
+          elif lib.f2==None:
+              for libs in readlibs:
+                  filereads1=filereads1+lib.f1.path
+                  if libs.id<len(readlibs):
+                      filereads1=filereads1+","
+
+              filereads="-i%s -m %s t %s -I %s -X %s "%(filereads1,str(mean),str(stdev),str(mean-5*stdev),str(mean+5*stdev))
+          #Calc_prob setup for paired reads
+          else:
+              for libs in readlibs:
+                  filereads1=filereads1+lib.f1.path
+                  filereads2=filereads2+lib.f2.path
+                  if libs.id<len(readlibs):
+                      filereads1=filereads1+","
+                      filereads2=filereads2+","
+
+              filereads=="-1 %s -2 %s -m %s -t %s -I %s -X %s "%(filereads1,filereads2,str(mean),str(stdev),str(mean-5*stdev),str(mean+5*stdev))
+          #If coverage file exists, include it in the command string for calc.py
+          if bpctgcov:
+              filereads= filereads+"-n %s/Assemble/out/%s.contig.cvg "%(settings.rundir,settings.PREFIX)
+              
+          for assembler in multiple_assemblers:
+              
+              open("%s/Preprocess/out/preprocess.success"%(settings.rundir), "w").close()
+              assemble.init(readlibs, skipsteps, assembler, usecontigs)
+              if assembler=="minimus":
+                  assemble.init(readlibs, skipsteps, "amos", usecontigs)#For some reason, minimus is referred to as "amos" in Assemble.py
+                  
+              if bpctgcov:
+                  pipeline_run([assemble.Assemble,mapreads.MapReads],\
+                           verbose = 2)
+              else:
+                  pipeline_run([assemble.Assemble],\
+                           verbose = 2)
+              command= "python ../LAP/aligner/calc_prob.py -a %s/Assemble/out/%s.asm.contig %s > %s/Assemble/out/outputScore.prob"%(settings.rundir,settings.PREFIX,filereads,settings.rundir)
+              #print command
+              os.system(command)
+              os.system("python ../LAP/aligner/sum_prob.py -i %s/Assemble/out/outputScore.prob > %s/Assemble/out/totalScore.txt"%(settings.rundir,settings.rundir))
+
+              scoreFile=open("%s/Assemble/out/totalScore.txt"%(settings.rundir),"r")
+              score=eval(scoreFile.read().split()[0])
+              scoreFile.close()
+              #print score
+              if bestAssembler=="":
+                  bestAssembler=assembler
+                  bestScore=score
+              if score>bestScore:
+                  bestAssembler=assembler
+                  bestScore=score
+              assemblerScores[assembler]=score
+
+              #Move best results back to pipeline for readmapping/annoation steps
+              shutil.move("%s/Assemble/out"%(settings.rundir),"%s/Assemble/temp%s/out"%(settings.rundir,assembler.upper()))
+
+          print "Printing LAP assembly scores:"
+          for assembler in multiple_assemblers:
+              print assembler + ": %s"%(assemblerScores[assembler])
+              
+          print "The assembler with the best LAP score is %s. Continuing pipeline with %s assembler data."%(bestAssembler,bestAssembler)
+
+          shutil.copytree("%s/Assemble/temp%s/out"%(settings.rundir,assembler.upper()),"%s/Assemble/out"%(settings.rundir))
+
+          if bpctgcov:
+              pipeline_run([findorfs.FindORFS, \
+                       findreps.FindRepeats, annotate.Annotate, abundance.Abundance, \
+                       fannotate.FunctionalAnnotation, scaffold.Scaffold, findscforfs.FindScaffoldORFS, \
+                       propagate.Propagate, classify.Classify, postprocess.Postprocess],\
+                       verbose = 2)
+          else:
+              pipeline_run([mapreads.MapReads,findorfs.FindORFS, \
+                       findreps.FindRepeats, annotate.Annotate, abundance.Abundance, \
+                       fannotate.FunctionalAnnotation, scaffold.Scaffold, findscforfs.FindScaffoldORFS, \
+                       propagate.Propagate, classify.Classify, postprocess.Postprocess],\
+                       verbose = 2)
+
        #multiprocess threads
        t2 = time.time()
        elapsed = float(t2)-float(t1)
