@@ -110,6 +110,21 @@ if not os.path.exists("./Utilities/config/usage.ok"):
     if dl == 'y' or dl == 'Y':
         os.system("echo ok > ./Utilities/config/usage.ok")
 
+if not os.path.exists("./LAP"):
+    print "LAP tool not found, needed for multiple assembly pipeline, download now?"
+
+    if silentInstall:
+       dl = 'y'
+    elif lightInstall:
+       dl = 'n'
+    else:
+       dl = raw_input("Enter Y/N: ")
+    if dl == 'y' or dl == 'Y':
+        os.system("curl http://www.cbcb.umd.edu/~cmhill/files/lap_release_1.zip -o lap_release_1.zip")
+        os.system("unzip lap_release_1.zip")
+        os.system("mv ./lap_release_1 ./LAP")
+	os.system("rm -rf lap_release_1.zip")
+
 #check for DBs, etc
 if not os.path.exists("./Utilities/cpp/%s-%s/metaphylerClassify"%(OSTYPE, MACHINETYPE)) or not os.path.exists("./Utilities/perl/metaphyler/markers/markers.protein") or not os.path.exists("./Utilities/perl/metaphyler/markers/markers.dna"):
     print "Metaphyler (latest version) not found, optional for Annotate, download now?"
