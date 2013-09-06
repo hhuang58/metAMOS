@@ -908,7 +908,7 @@ if __name__ == "__main__":
            if "ASSEMBLE" in string.upper(item):
                forcetasks.append("assemble.Assemble")
 
-            elif "FINDORFS" in string.upper(item):
+           elif "FINDORFS" in string.upper(item):
                forcetasks.append("findorfs.FindORFS")
 
        if(selected_programs["assemble"]!="allassemblers" and selected_programs["assemble"]!="multassemblers"):
