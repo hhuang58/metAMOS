@@ -4,6 +4,35 @@ import os, sys, string, time, BaseHTTPServer, getopt, time, datetime
 #from datetime import date
 #from ruffus import *
 
+#code to discover frozen binary location
+application_path = ""
+if getattr(sys, 'frozen', False):
+    application_path = os.path.dirname(sys.executable)
+elif __file__:
+    application_path = os.path.dirname(__file__)
+
+#code to update frozen binary runPipeline if newer one exists
+try:
+
+   sys._MEIPASS
+   #print "Download/install latest version of MetAMOS frozen binary, if available? (note, this might require root/sudo access!)"
+   dl = 'y'
+   #dl = raw_input("Enter Y/N: ")
+
+   #add autoupdate.txt file in install dir if you would like MetAMOS to auto-update
+   try:
+       f = open("%s/autoupdate.ok","r")
+       f.close()
+   except IOError:
+       dl = 'n'
+   if dl == 'y' or dl == 'Y':
+       os.system("wget -P %s -N http://www.cbcb.umd.edu/confcour/temp/runPipeline"%(application_path))
+       os.system("wget -P %s -N http://www.cbcb.umd.edu/confcour/temp/initPipeline"%(application_path))
+except Exception:
+   pass
+
+#check remote filestamp, if newer ask to download & replace
+
 libcounter = 1
 class readLib:
     format = ""
@@ -82,7 +111,7 @@ def usage():
 if len(sys.argv) < 2:
     usage()
     sys.exit(1)
-allsteps = ["Preprocess","Assemble","FindORFS","FindRepeats","Abundance","Annotate","FunctionalAnnotation","Scaffold","Propagate","FindScaffoldORFS","Classify","Postprocess"]
+allsteps = ["Preprocess","Assemble","MultiAlign","FindORFS","FindRepeats","Abundance","Annotate","FunctionalAnnotation","Scaffold","Propagate","FindScaffoldORFS","Classify","Postprocess"]
 
 today = datetime.datetime.now()
 #todaytime = date.fromtimestamp(time.time())
@@ -167,7 +196,7 @@ for o, a in opts:
         for insert in ins:
             data = insert.split(":")
             if len(data) < 2:
-                print "Need to provide both min & max!"
+                print "For library %d, need to provide both min & max insert size using min:max syntax!"%(len(inserts)+1)
                 sys.exit(1)
             min,max = data[0],data[1]#insert.split(",")
             inserts.append([min,max])
@@ -207,7 +236,7 @@ while i < len(readlibs):
      
     if readlibs[i].mated:
         if (len(inserts) <= j):
-           print "Error: no insert size specified for library %d\n"%(i)
+           print "Error: no insert size specified for library %d\n"%(i+1)
            sys.exit(2)
         readlibs[i].setMinMax(int(inserts[j][0]), int(inserts[j][1]))
         j += 1
@@ -266,18 +295,22 @@ while i < len(readlibs):
         cf.write("lib%dformat:\tfasta\n"%(i+1))
         if mylib.interleaved or not mylib.mated:
             filen = os.path.basename(f1)
-            os.system("cp %s.qual %s/Preprocess/in/. "%(f1,id))
+            if os.path.exists("%s.qual"%(f1)):
+                os.system("cp %s.qual %s/Preprocess/in/. "%(f1,id))
         else:
             filen1 = os.path.basename(f1)
             filen2 = os.path.basename(f2)
-            os.system("cp %s.qual %s/Preprocess/in/."%(f1,id))
-            os.system("cp %s.qual %s/Preprocess/in/. "%(f2,id))
+            if os.path.exists("%s.qual"%(f1)):
+                os.system("cp %s.qual %s/Preprocess/in/."%(f1,id))
+            if os.path.exists("%s.qual"%(f2)):
+                os.system("cp %s.qual %s/Preprocess/in/. "%(f2,id))
     if not mylib.mated:
         filen = os.path.basename(f1)
         cf.write("lib%dmated:\tFalse\n"%(i+1))
         cf.write("lib%dinterleaved:\tFalse\n"%(i+1))
         cf.write("lib%dfrg:\t%s\n"%(i+1,filen))
-        os.system("cp %s %s/Preprocess/in/. "%(f1,id))
+        if os.path.exists("%s"%(f1)):
+            os.system("cp %s %s/Preprocess/in/. "%(f1,id))
 
     #os.system("ln -t %s -s %s/Preprocess/in/%s"%(frg,id,filen))
     elif mylib.mated:

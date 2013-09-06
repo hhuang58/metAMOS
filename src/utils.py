@@ -8,6 +8,31 @@ from operator import itemgetter
 import multiprocessing
 
 import hashlib
+shellv = os.environ["SHELL"]
+_BINARY_DIST = False
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS                                                                                                                           
+        base_path = sys._MEIPASS
+        _BINARY_DIST = True
+        #print sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
+
+application_path = ""
+if getattr(sys, 'frozen', False):
+    application_path = os.path.dirname(sys.executable)
+elif __file__:
+    application_path = os.path.dirname(__file__)
+
+#print application_path
+
+#NEED INSTALL DIR
+#CWD print os.path.abspath(".")
+#internal DIR print sys.path[0]
 
 CSI="\x1B["
 reset=CSI+"m"
@@ -16,12 +41,23 @@ WARNING_YELLOW = CSI+'\033[93m'
 ERROR_RED = CSI+'\033[91m'
 ENDC = CSI+'0m'
 
-_METAMOSDIR    = sys.path[0]
+_METAMOSDIR    = resource_path(sys.path[0])
 INITIAL_UTILS = "%s%sUtilities"%(_METAMOSDIR, os.sep)
 _NUM_LINES    = 10
-
 _PROG_NAME_DICT = {}
 _PUB_DICT = {}
+
+def enum(*sequential, **named):
+    enums = dict(zip(sequential, range(len(sequential))), **named)
+    reverse = dict((value, key) for key, value in enums.iteritems())
+    mapping = dict((key, value) for key, value in enums.iteritems())
+    enums['reverse_mapping'] = reverse
+    enums['mapping'] = mapping
+    return type('Enum', (), enums)
+
+STEP_NAMES = enum("ASSEMBLE", "ANNOTATE")
+STEP_OUTPUTS = enum(".asm.contig", ".hits")
+INPUT_TYPE = enum("FASTQ", "FASTA", "CONTIGS", "SCAFFOLDS", "ORF_FA", "ORF_AA")
 
 class AtomicCounter(object):
   def __init__(self, initval=0):
@@ -44,8 +80,10 @@ class Settings:
    threads = 16
    rundir = ""
    taxa_level = "class"
+   local_krona = False
+   annotate_unmapped = False
    task_dict = []
-
+   noblastdb = False
    VERBOSE = False
    OUTPUT_ONLY = False
 
@@ -72,6 +110,8 @@ class Settings:
    METAVELVET = ""
    SPARSEASSEMBLER = ""
 
+   MGCAT = ""
+
    METAPHYLER = ""
    BOWTIE = ""
    BOWTIE2 = ""
@@ -84,11 +124,17 @@ class Settings:
    PHYMM = ""
    BLAST = ""
    PHYLOSIFT = ""
-
+   DB_DIR = ""
+   BLASTDB_DIR = ""
    KRONA = ""
    REPEATOIRE = ""
 
-   def __init__(self, kmer = None, threads = None, rundir = None, taxa_level = "", verbose = False, outputOnly = False, update = False):
+   BINARY_DIST = 0
+
+   nopsutil = False
+   nopysam = False
+
+   def __init__(self, kmer = None, threads = None, rundir = None, taxa_level = "", localKrona = False, annotateUnmapped = False, verbose = False, outputOnly = False, update = False):
 
       if (Settings.rundir != "" and update == False):
          return
@@ -97,11 +143,37 @@ class Settings:
          print "Error settings is uninitialized and no intialization provided\n"
          raise(Exception)
 
+      _BINARY_DIST = False
+      try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS                                                                                                                           
+        base_path = sys._MEIPASS
+        _BINARY_DIST = True
+        #print sys._MEIPASS
+      except Exception:
+        pass
+
+      try:
+         import pysam
+         if verbose:
+            print "Found pysam in %s"%(pysam.__file__)
+      except ImportError:
+         Settings.nopysam = True
+         print "Could not import pysam, disabling."
+      try:
+         import psutil
+         if verbose:
+            print "Found psutil in %s"%(psutil.__file__)
+      except ImportError:
+         Settings.nopsutil = True
+         print "Could not import psutil, disabling."
+
       Settings.rundir = rundir
       Settings.kmer = kmer
       Settings.threads = threads 
       Settings.rundir = rundir
       Settings.taxa_level = taxa_level
+      Settings.local_krona = localKrona
+      Settings.annotate_unmapped = annotateUnmapped
       Settings.task_dict = []
 
       Settings.PREFIX = "proba"
@@ -112,11 +184,42 @@ class Settings:
       Settings.OSVERSION     = "0.0"
       Settings.MACHINETYPE   = "x86_64"
 
+
       Settings.METAMOSDIR    = sys.path[0]
       Settings.METAMOS_DOC   = "%s%sdoc"%(Settings.METAMOSDIR, os.sep)
       Settings.METAMOS_UTILS = "%s%sUtilities"%(Settings.METAMOSDIR, os.sep) 
       Settings.METAMOS_JAVA  = "%s%sjava:%s"%(Settings.METAMOS_UTILS,os.sep,os.curdir)
 
+      Settings.noblastdb = False
+      _DB_PATH = "%s/DB/"%(Settings.METAMOS_UTILS)
+      _BLASTDB_PATH = _DB_PATH
+      
+      if _BINARY_DIST:
+          #need to change KronaTools.pm to external Taxonomy directory
+
+            
+
+          try:
+              _DB_PATH = "%s/DB/"%(application_path)
+              _BLASTDB_PATH = _DB_PATH + os.sep + "blastdbs"+os.sep
+              if len(os.environ["BLASTDB"]) != 0:
+                  _BLASTDB_PATH == os.environ["BLASTDB"]
+                  if not os.path.exists(_BLASTDB_PATH):
+                      print "Error: cannot find BLAST DB directory, yet path set via $BLASTDB: %s. Disabling blastdb dependent programs"%(os.environ["BLASTDB"])
+                      Settings.noblastdb = True
+                      #sys.exit(1)
+              #print "BINARY DIST", _DB_PATH
+          except KeyError:
+              #_DB_PATH = "./DB/"
+              pass
+
+          if not os.path.exists(_DB_PATH):
+              print "Error: cannot find DB directory in %s, was it deleted? oops, it is required to run MetAMOS!"%(_DB_PATH)
+              sys.exit(1)
+             
+      Settings.DB_DIR        = _DB_PATH 
+      Settings.BLASTDB_DIR   = _BLASTDB_PATH 
+      Settings.BINARY_DIST   = _BINARY_DIST
       Settings.AMOS          = "%s%sAMOS%sbin"%(Settings.METAMOSDIR, os.sep, os.sep)
       Settings.BAMBUS2       = Settings.AMOS
 
@@ -141,10 +244,24 @@ class Settings:
 
       Settings.FCP           = "%s%scpp%s%s-%s"%(Settings.METAMOS_UTILS, os.sep, os.sep, Settings.OSTYPE, Settings.MACHINETYPE)
       Settings.PHMMER        = "%s%scpp%s%s-%s"%(Settings.METAMOS_UTILS, os.sep, os.sep, Settings.OSTYPE, Settings.MACHINETYPE)
+      Settings.MGCAT         = "%s%scpp%s%s-%s"%(Settings.METAMOS_UTILS, os.sep, os.sep, Settings.OSTYPE, Settings.MACHINETYPE)
       Settings.BLAST         = "%s%scpp%s%s-%s"%(Settings.METAMOS_UTILS, os.sep, os.sep, Settings.OSTYPE, Settings.MACHINETYPE)
       Settings.PHYLOSIFT     = "%s%sPhyloSift"%(Settings.METAMOSDIR, os.sep)
 
       Settings.KRONA         = "%s%sKronaTools%sbin"%(Settings.METAMOSDIR,os.sep,os.sep)
+      if _BINARY_DIST:
+          #need to change KronaTools.pm to external Taxonomy directory
+           kronalibf = open("%s%sKronaTools%slib%sKronaTools.pm"%(Settings.METAMOSDIR,os.sep,os.sep,os.sep))
+           data = kronalibf.read()
+           if "my $taxonomyDir = \"$libPath/../taxonomy\";" not in data:
+               kronalibf.close()
+           else:
+               dd = data.replace("my $taxonomyDir = \"$libPath/../taxonomy\";","my $taxonomyDir = \"%s/taxonomy\";"%(Settings.DB_DIR))
+               kronalibf.close()
+               kronalibf = open("%s%sKronaTools%slib%sKronaTools.pm"%(Settings.METAMOSDIR,os.sep,os.sep,os.sep),'w')
+               kronalibf.write(dd)
+               kronalibf.close()
+               os.system("ln -s %s/taxonomy %s%sKronaTools%staxonomy"%(Settings.DB_DIR,Settings.METAMOSDIR,os.sep,os.sep))
       Settings.REPEATOIRE    = "%s%scpp%s%s-%s"%(Settings.METAMOS_UTILS, os.sep, os.sep, Settings.OSTYPE, Settings.MACHINETYPE)
 
 
@@ -346,8 +463,8 @@ def cmdExists(cmd):
 
     return result
 
-def initConfig(kmer, threads, theRundir, taxaLevel, verbose, outputOnly):
-    Settings(kmer, threads, theRundir, taxaLevel, verbose, outputOnly, True)
+def initConfig(kmer, threads, theRundir, taxaLevel, localKrona, annotateUnmapped, verbose, outputOnly):
+    Settings(kmer, threads, theRundir, taxaLevel, localKrona, annotateUnmapped, verbose, outputOnly, True)
 
     getMachineType()
 
@@ -358,7 +475,7 @@ def initConfig(kmer, threads, theRundir, taxaLevel, verbose, outputOnly):
        Settings.METAMOS_UTILS = "%s%sUtilities"%(Settings.METAMOSDIR, os.sep) 
        if not os.path.exists(Settings.METAMOS_UTILS):
           print "Error: cannot find metAMOS utilities. Will not run pipeline"
-          sys.exit(1);   
+          sys.exit(1)   
 
        Settings.METAMOS_JAVA  = "%s%sjava:%s"%(Settings.METAMOS_UTILS, os.sep, os.curdir)
        Settings.METAMOS_DOC   = "%s%sdoc"%(Settings.METAMOS_UTILS, os.sep)
@@ -394,7 +511,7 @@ def initConfig(kmer, threads, theRundir, taxaLevel, verbose, outputOnly):
     CAMD5 = getMD5Sum(Settings.CA + os.sep + "gatekeeper")
 
     # 4. Newbler
-    Settings.NEWBLER = "%s%snewbler"%(Settings.METAMOSDIR, os.sep);
+    Settings.NEWBLER = "%s%snewbler%s%s-%s"%(Settings.METAMOSDIR, os.sep, os.sep, Settings.OSTYPE, Settings.MACHINETYPE)
     if not os.path.exists(Settings.NEWBLER + os.sep + "runProject"):
        Settings.NEWBLER = getFromPath("runProject", "Newbler")
     newblerMD5 = getMD5Sum(Settings.NEWBLER + os.sep + "runProject")
@@ -407,19 +524,19 @@ def initConfig(kmer, threads, theRundir, taxaLevel, verbose, outputOnly):
 
     # when searching for velvet, we ignore paths because there are so many variations of velvet (velvet, velvet-sc, meta-velvet that all have a velveth/g and we have no way to tell if we got the right one
     #6. velvet
-    Settings.VELVET = "%s%scpp%s%s-%s%svelvet"%(Settings.METAMOS_UTILS, os.sep, os.sep, Settings.OSTYPE, Settings.MACHINETYPE, os.sep);
+    Settings.VELVET = "%s%scpp%s%s-%s%svelvet"%(Settings.METAMOS_UTILS, os.sep, os.sep, Settings.OSTYPE, Settings.MACHINETYPE, os.sep)
     if not os.path.exists(Settings.VELVET + os.sep + "velvetg"):
        Settings.VELVET = ""
     velvetMD5 = getMD5Sum(Settings.VELVET + os.sep + "velvetg")
 
     #7. velvet-sc
-    Settings.VELVET_SC = "%s%scpp%s%s-%s%svelvet-sc"%(Settings.METAMOS_UTILS, os.sep, os.sep, Settings.OSTYPE, Settings.MACHINETYPE, os.sep);
+    Settings.VELVET_SC = "%s%scpp%s%s-%s%svelvet-sc"%(Settings.METAMOS_UTILS, os.sep, os.sep, Settings.OSTYPE, Settings.MACHINETYPE, os.sep)
     if not os.path.exists(Settings.VELVET_SC + os.sep + "velvetg"):
        Settings.VELVET_SC = ""
     velvetSCMD5 = getMD5Sum(Settings.VELVET_SC + os.sep + "velvetg")
 
     #8. metavelvet
-    Settings.METAVELVET = "%s%scpp%s%s-%s%sMetaVelvet"%(Settings.METAMOS_UTILS, os.sep, os.sep, Settings.OSTYPE, Settings.MACHINETYPE, os.sep);
+    Settings.METAVELVET = "%s%scpp%s%s-%s%sMetaVelvet"%(Settings.METAMOS_UTILS, os.sep, os.sep, Settings.OSTYPE, Settings.MACHINETYPE, os.sep)
     if not os.path.exists(Settings.METAVELVET + os.sep + "meta-velvetg"):
        Settings.METAVELVET = getFromPath("meta-velvetg", "METAVELVET")
     metaVelvetMD5 = getMD5Sum(Settings.SOAPDENOVO + os.sep + "meta-velvetg")
@@ -485,6 +602,11 @@ def initConfig(kmer, threads, theRundir, taxaLevel, verbose, outputOnly):
        Settings.PHMMER = getFromPath("phmmer", "PHmmer")
     phmmerMD5 = getMD5Sum(Settings.PHMMER + os.sep + "phmmer")
 
+    Settings.MGCAT = "%s%scpp%s%s-%s"%(Settings.METAMOS_UTILS, os.sep, os.sep, Settings.OSTYPE, Settings.MACHINETYPE)
+    if not os.path.exists(Settings.PHMMER + os.sep + "mgcat"):
+       Settings.MGCAT = getFromPath("mgcat", "mgcat")
+    mgcatMD5 = getMD5Sum(Settings.MGCAT + os.sep + "mgcat")
+
     Settings.PHYMM = "%s%sperl%sphymm%s"%(Settings.METAMOS_UTILS, os.sep, os.sep,os.sep)
     if not os.path.exists(Settings.PHYMM + os.sep + "scoreReads.pl"):
        Settings.PHYMM = getFromPath("phymm", "Phymm")
@@ -498,15 +620,36 @@ def initConfig(kmer, threads, theRundir, taxaLevel, verbose, outputOnly):
     # currently only supported on Linux 64-bit and only from one location
     Settings.PHYLOSIFT = "%s%sphylosift"%(Settings.METAMOSDIR, os.sep)
     if not os.path.exists(Settings.PHYLOSIFT + os.sep + "bin" + os.sep + "phylosift"):
-       print "Warning: PhyloSift was not found, will not be available\n";
+       print "Warning: PhyloSift was not found, will not be available\n"
        Settings.PHYLOSIFT = ""
-    if Settings.PHYLOSIFT != "" and (Settings.OSTYPE != "Linux" or Settings.MACHINETYPE != "x86_64"):
-       print "Warning: PhyloSift not compatible with %s-%s. It requires Linux-x86_64\n"%(Settings.OSTYPE, Settings.MACHINETYPE)
-       Settings.PHYLOSIFT = "" 
     phylosiftMD5 = getMD5Sum(Settings.PHYLOSIFT + os.sep + "bin" + os.sep + "phylosift")
 
     # finally store the configuration 
     conf = open("%s/pipeline.conf"%(Settings.rundir),'w')
+    if Settings.BINARY_DIST and 1: 
+          prevtmpdirs = []
+          try:
+              bdf = open("%s/prevruns.tmp"%(application_path),'r')
+              for line in bdf.xreadlines():
+                  prevtmpdirs.append(line.replace("\n",""))
+              for pdir in prevtmpdirs:
+                  if os.path.exists("%s"%(pdir)):
+                      os.system("rm -rf %s"%(pdir))
+              bdf.close()
+              bdf = open("%s/prevruns.tmp"%(application_path),'w')
+              bdf.close()
+
+          except IOError:
+              #do not have permissions to write to install dir, store in tmp?
+              #tf, tf_path = tempfile.mkstemp("prevruns.tmp",'w')
+              bdf = open("%s/prevruns.tmp"%(application_path),'w')
+              bdf.write("%s\n"%(sys._MEIPASS))
+              bdf.close()
+
+          except TypeError:
+              bdf = open("%s/prevruns.tmp"%(application_path),'w')
+              bdf.write("%s\n"%(sys._MEIPASS))
+              bdf.close()
 
     conf.write("#Configuration summary\n")
     conf.write("OS:\t\t\t%s\nOS Version:\t\t%s\nMachine:\t\t%s\n"%(Settings.OSTYPE, Settings.OSVERSION, Settings.MACHINETYPE))
@@ -524,6 +667,7 @@ def initConfig(kmer, threads, theRundir, taxaLevel, verbose, outputOnly):
     conf.write("Bowtie:\t\t\t%s\t%s\n"%(Settings.BOWTIE, bowtieMD5))
     conf.write("Bowtie2:\t\t\t%s\t%s\n"%(Settings.BOWTIE2, bowtie2MD5))
     conf.write("samtools:\t\t\t%s\t%s\n"%(Settings.SAMTOOLS, samtoolsMD5))
+    conf.write("M-GCAT:\t\t\t%s\t%s\n"%(Settings.MGCAT, mgcatMD5))
     conf.write("METAGENEMARK:\t\t\t%s\t%s\n"%(Settings.METAGENEMARK, gmhmmpMD5))
     conf.write("FRAGGENESCAN:\t\t%s\t%s\n"%(Settings.FRAGGENESCAN, fraggenescanMD5))
     conf.write("FCP:\t\t\t%s\t%s\n"%(Settings.FCP, fcpMD5))
@@ -558,7 +702,7 @@ def run_process(settings,command,step=""):
            # open command log file for appending (it should have been created above)
            commandf = open(settings.rundir + os.sep + "Logs" + os.sep + "COMMANDS.log", 'a')
 
-           if not step in settings.task_dict:
+           if step not in settings.task_dict:
               print "Starting Task = %s.%s"%(step.lower(), step)
               dt = datetime.now().isoformat(' ')[:-7]
               commandf.write("|%s|# [%s]\n"%(dt,step))
@@ -631,14 +775,15 @@ def run_process(settings,command,step=""):
 def getProgramCitations(settings, programName, comment="#"):
    global _PUB_DICT
    global _PROG_NAME_DICT
-
+   cite = ""
    if len(_PUB_DICT) == 0:
       try:
          cite = open("%s/%s"%(settings.METAMOS_DOC, "citations.rst"), 'r')
-      except IOError as e:
-         return
+      except IOError:
+         #print "no citations file! cannot print!"
+         return ("","")
 
-      for line in cite:
+      for line in cite.xreadlines():
          (line, sep, commentLine) = line.partition(comment)
          splitLine = line.strip().split("\t")
          if len(splitLine) >= 3:
@@ -654,9 +799,12 @@ def getProgramCitations(settings, programName, comment="#"):
          _PROG_NAME_DICT[name] = commonName
          _PUB_DICT[name] = citation
 
-   return (_PROG_NAME_DICT[programName], _PUB_DICT[programName]) 
+   try:
+      return (_PROG_NAME_DICT[programName], _PUB_DICT[programName]) 
+   except KeyError:
+      return(programName, "UNKNOWN")
 
-def getProgramParams(configDir, fileName, module="", prefix="", comment="#"):
+def getProgramParams(configDir, fileName, module="", prefix="", comment="#", separator=""):
     # we process parameters in the following priority:
     # first: current directory
     # second: user home directory
@@ -668,7 +816,8 @@ def getProgramParams(configDir, fileName, module="", prefix="", comment="#"):
     cmdOptions = ""
 
     for curDir in dirs:
-       curFile = curDir + os.sep + fileName;
+       spec = ""
+       curFile = curDir + os.sep + fileName
        try:
           spec = open(curFile, 'r')
        except IOError as e:
@@ -678,23 +827,44 @@ def getProgramParams(configDir, fileName, module="", prefix="", comment="#"):
        if module == "":
           read = True
 
-       for line in spec:
+       for line in spec.xreadlines():
           (line, sep, commentLine) = line.partition(comment)
           line = line.strip()
 
           if line == "[" + module + "]":
              read = True
-             continue;
+             continue
           elif read == True and line.startswith("["):
-             break;
+             break
 
           if read:
              if (line != ""):
+                if (line.endswith("\\")):
+                   for next in spec:
+                      line = line.replace("\\", "") + next.replace("\\", "")
+                      if not next.endswith("\\"):
+                         break
                 splitLine = line.split();
-                optDict[splitLine[0]] = "".join(splitLine[1:]).strip() 
+                optDict[splitLine[0]] = separator.join(splitLine[1:]).strip() 
        spec.close()
 
     for option in optDict:
-       cmdOptions += prefix + option + " " + optDict[option] + " ";
+       cmdOptions += prefix + option + " " + optDict[option] + " "
 
     return cmdOptions
+
+def getAvailableMemory(settings):
+   if settings.nopsutil:
+      return 0
+
+   import psutil
+
+   cacheusage=0
+   if 'linux' in settings.OSTYPE.lower():
+      cacheusage = psutil.cached_phymem()
+   memusage =  `psutil.phymem_usage()`.split(",")
+   freemem = long(memusage[2].split("free=")[-1])+long(cacheusage)
+   percentfree = float(memusage[3].split("percent=")[-1].split(")")[0])
+   avram = (freemem/1000000000)
+
+   return avram

@@ -6,7 +6,7 @@
 ## runPipeline.py - main pipeline driver for metAMOS
 #########################
 ##first imports
-import os,sys,site
+import os,sys
 sys.tracebacklimit = 0
 shellv = os.environ["SHELL"]
 ## Setting up paths
@@ -23,56 +23,54 @@ if validate_install:
     if rt == -1:
         print "MetAMOS not properly installed, please reinstall or contact development team for assistance"
         sys.exit(1)
+
 import utils
 ppath = ""
 if "PYTHONPATH" not in os.environ:
    os.environ["PYTHONPATH"] = ""
 else:
    ppath = os.environ["PYTHONPATH"] 
-   os.environ["PYTHONPATH"] = ""
+   #os.environ["PYTHONPATH"] = ""
 os.environ["PYTHONPATH"]+=utils.INITIAL_UTILS+os.sep+"python"+os.pathsep
 os.environ["PYTHONPATH"]+=utils.INITIAL_UTILS+os.sep+"ruffus"+os.pathsep
-os.environ["PYTHONPATH"] += utils.INITIAL_UTILS+os.sep+"python"+os.sep+"pysam"+os.pathsep
 os.environ["PYTHONPATH"] += utils.INITIAL_UTILS+os.sep+"python"+os.sep+"lib"+os.pathsep
 os.environ["PYTHONPATH"] += utils.INITIAL_UTILS+os.sep+"python"+os.sep+"lib"+os.sep+"python"+os.pathsep
 os.environ["PYTHONPATH"] += utils.INITIAL_UTILS+os.sep+"python"+os.sep+"lib64"+os.pathsep
 os.environ["PYTHONPATH"] += utils.INITIAL_UTILS+os.sep+"python"+os.sep+"lib64"+os.sep+"python"+os.pathsep
-os.environ["PYTHONPATH"] += ppath + os.pathsep
-site.addsitedir(utils.INITIAL_UTILS+os.sep+"python"+os.sep+"lib"+os.sep+"python")
-site.addsitedir(utils.INITIAL_UTILS+os.sep+"python"+os.sep+"lib64"+os.sep+"python")
+os.environ["PYTHONPATH"] += utils.INITIAL_UTILS+os.pathsep
+
+if "PERL5LIB" not in os.environ:
+    os.environ["PERL5LIB"] =  INITIAL_SRC+os.sep+"phylosift"+os.sep+"lib"+os.sep
+else:
+    os.environ["PERL5LIB"] =  INITIAL_SRC+os.sep+"phylosift"+os.sep+"lib"+os.sep + os.pathsep + os.environ["PERL5LIB"]
+try:
+    os.environ["PYTHONPATH"] += sys._MEIPASS + os.pathsep
+    os.environ["PYTHONHOME"] = sys._MEIPASS + os.pathsep
+except Exception:
+    pass
+
+try:
+    sys._MEIPASS
+    #if we are here, frozen binary
+except Exception:
+    #else normal mode, add site dir
+    import site
+    site.addsitedir(utils.INITIAL_UTILS+os.sep+"python"+os.sep+"lib"+os.sep+"python")
+    site.addsitedir(utils.INITIAL_UTILS+os.sep+"python"+os.sep+"lib64"+os.sep+"python")
+
 sys.path.append(utils.INITIAL_UTILS)
 sys.path.append(utils.INITIAL_UTILS+os.sep+"python")
 sys.path.append(utils.INITIAL_UTILS+os.sep+"ruffus")
-sys.path.append(utils.INITIAL_UTILS+os.sep+"python"+os.sep+"pysam")
 sys.path.append(utils.INITIAL_UTILS+os.sep+"python"+os.sep+"lib"+os.sep+"python")
 sys.path.append(utils.INITIAL_UTILS+os.sep+"python"+os.sep+"lib64"+os.sep+"python")
+try:
+    sys.path.append(sys._MEIPASS)
+except Exception:
+    pass
+sys.path.append("/usr/lib/python")
 
 #remove imports from pth file, if exists
 nf = []
-nopsutil = False
-nopysam = False
-try:
-    dir1 = utils.INITIAL_UTILS+os.sep+"python"+os.sep+"lib"+os.sep+"python"
-    if not os.path.exists(dir1+os.sep+"easy-install.pth"):
-        dir1 = utils.INITIAL_UTILS+os.sep+"python"+os.sep+"lib64"+os.sep+"python"
-
-    nf = open(dir1+os.sep+"easy-install.pth",'r')
-    ndata = []
-    for line in nf.xreadlines():
-        if "import" in line:
-            continue
-        ndata.append(line)
-    nf.close()
-    nfo = open(dir1+os.sep+"easy-install.pth",'w')
-    for line in ndata:
-        nfo.write(line)
-    nfo.close()
-except IOError:
-    print "ERROR: easy-install.pth file missing, likely means something went wrong with psutil/pysam install. Disabling psutil and pysam.."
-    nopsutil = True
-    nopysam = True
-    #sys.exit(1)
-
 if 'bash' in shellv or utils.cmdExists('export'):
    os.system("export PYTHONPATH=%s:$PYTHONPATH"%(utils.INITIAL_UTILS+os.sep+"python"))
    os.system("export PYTHONPATH=%s:$PYTHONPATH"%(utils.INITIAL_UTILS+os.sep+"python"+os.sep+"lib"+os.sep+"python"))
@@ -91,11 +89,11 @@ import re
 import subprocess
 import webbrowser
 import multiprocessing
-if not nopsutil:
-    import psutil
 from operator import itemgetter
 from ruffus import *
+from task import JobSignalledBreak
 skipsteps = ["FindRepeats"]
+isolate_genome = False
 
 ## Get start time
 t1 = time.time()
@@ -144,9 +142,11 @@ def usage():
     print "   -z = <string>: taxonomic level to categorize at (default = %s)"%(DEFAULT_TAXA_LEVEL)
 
     print "\n[misc_opts]: Miscellaneous options"
+    print "   -B = <bool>:   blast DBs not available (default = NO)"
     print "   -r = <bool>:   retain the AMOS bank?  (default = NO)"
     print "   -p = <int>:    number of threads to use (be greedy!) (default=1)"
     print "   -4 = <bool>:   454 data? (default = NO)"    
+    print "   -L = <bool>:   generate local Krona plots. Local Krona plots can only be viewed on the machine they are generated on but will work on a system with no internet connection (default = NO)"
 
 def updateCounter():
     ##if user says its ok, create MetAMOS counter git repo and update counter each time its run!
@@ -194,12 +194,16 @@ def printConfiguration(fileName=None):
            configurationText.append("None\n\n")
         else:
            (progName, citation) = utils.getProgramCitations(settings, prog)
-           configurationText.append(progName + "\n")
+           if progName == "":
+               configurationText.append(prog + "\n")
+           else:
+               configurationText.append(progName + "\n")
            try:
               configurationText.append("\t" + eval("utils.Settings.%s"%(prog.replace("-", "_").upper()))+"\n")
            except AttributeError:
-              configurationText.append("\tUNKNOWN\n")
-           configurationText.append("\t" + citation + "\n\n")
+              configurationText.append("\t" + generic.getLocation(utils.STEP_NAMES.mapping[type.upper()], prog) + "\n")
+           if citation != "":
+               configurationText.append("\t" + citation + "\n\n")
 
     # add step-indepent citations that are always run
     configurationText.append("[other]\n")
@@ -223,8 +227,11 @@ def printConfiguration(fileName=None):
         conf.close()
 
 try:
-    opts, args = getopt.getopt(sys.argv[1:], "hrjwbd:s:e:o:k:c:a:n:p:qtf:vm:4g:iu1l:x:yz:",\
+    opts, args = getopt.getopt(sys.argv[1:], "hM:I:R:rjwbd:s:e:o:k:c:a:n:p:qtf:vm:4g:iu1l:x:yz:LB",\
                                    ["help", \
+                                        "multialigner",\
+                                        "isolate",\
+                                        "refgenomes",\
                                         "retainBank", \
                                         "libspeccov",\
                                         "projectdir",\
@@ -251,39 +258,43 @@ try:
                                         "justprogs", \
                                         "what", \
                                         "lowcpu",\
-                                        "taxalevel"])
+                                        "taxalevel",\
+                                        "localKrona",\
+                                        "noblastdb"])
 except getopt.GetoptError, err:
     # print help information and exit:
     print str(err) # will print something like "option -a not recognized"
     usage()
     sys.exit(2)
 
-
 ## always use long names, search will auto-detect abbreviations
+settings = utils.Settings(DEFAULT_KMER, multiprocessing.cpu_count() - 1, "", DEFAULT_TAXA_LEVEL)
+import generic
 
 supported_programs = {}
 supported_genecallers = ["fraggenescan","metagenemark","glimmermg"]
 supported_assemblers = ["soapdenovo","newbler","ca","velvet","velvet-sc","metavelvet",\
                             "metaidba","sparseassembler","minimus"]
+supported_assemblers.extend(generic.getSupportedList(utils.INITIAL_UTILS, utils.STEP_NAMES.ASSEMBLE))
+
 #To hold multiple assemblers
 multiple_assemblers=[]
 supported_mappers = ["bowtie","bowtie2"]
-
-if nopysam:
-    #need pysam for bowtie2 support
-    supported_mappers = ["bowtie"]
 supported_abundance = ["metaphyler"]
+supported_aligners = ["mgcat"]
 supported_classifiers = ["fcp","phylosift","phmmer","blast",\
                              "metaphyler", "phymm"]
+supported_classifiers.extend(generic.getSupportedList(utils.INITIAL_UTILS, utils.STEP_NAMES.ANNOTATE))
 supported_fannotate = ["blast"]
 supported_scaffolders = ["bambus2"]
 supported_programs["findorfs"] = supported_genecallers
 supported_programs["assemble"] = supported_assemblers
 supported_programs["mapreads"] = supported_mappers
 supported_programs["abundance"] = supported_abundance
-supported_programs["classify"] = supported_classifiers
+supported_programs["annotate"] = supported_classifiers
 supported_programs["fannotate"] = supported_fannotate
 supported_programs["scaffold"] = supported_scaffolders
+supported_programs["multialign"] = supported_aligners
 
 supported_taxonomic = ["kingdom", "phylum", "class", "order", "family", "genus", "species"]
 
@@ -292,14 +303,15 @@ selected_programs["assemble"] = "soapdenovo"
 selected_programs["findorfs"] = "fraggenescan"
 selected_programs["mapreads"] = "bowtie"
 selected_programs["abundance"] = "metaphyler"
-selected_programs["classify"] = "fcp"
+selected_programs["annotate"] = "fcp"
 selected_programs["fannotate"] = "blast"
 selected_programs["scaffold"] = "bambus2"
+selected_programs["multialign"] = "mgcat"
 
 always_run_programs = ["krona"]
 
 
-allsteps = ["Preprocess","Assemble","MapReads","FindORFS","FindRepeats","Abundance","Annotate",\
+allsteps = ["Preprocess","Assemble","MapReads","MultiAlign","FindORFS","FindRepeats","Abundance","Annotate",\
                 "FunctionalAnnotation","Scaffold","FindScaffoldORFS","Propagate","Classify","Postprocess"]
 
 ## Need comments here and further down
@@ -330,10 +342,11 @@ min_ctg_len = 300
 read_orfs = False
 min_ctg_cvg = 3
 lowmem= False
-annotate_unassembled = False
 output_programs = 0
 settings = utils.Settings(DEFAULT_KMER, multiprocessing.cpu_count() - 1, "", DEFAULT_TAXA_LEVEL)
 nofcpblast = False
+noblastdb = False
+refgenomes = ""
 bpctgcov = False
 for o, a in opts:
     if o in ("-v","--verbose"):
@@ -343,6 +356,13 @@ for o, a in opts:
         sys.exit()
     elif o in ("-i","--indexbowtie"):
         bowtie_mapping = 1
+    elif o in ("-B","--noblastdb"):
+        noblastdb = True
+        #skip Metaphyler
+        #skipsteps.append("Abundance")
+        skipsteps.append("FunctionalAnnotation")
+        #skip
+        nofcpblast = True
     elif o in ("-y","--lowcpu"):
         nofcpblast = True
     elif o in ("-w","--what"):
@@ -356,17 +376,17 @@ for o, a in opts:
             for prog in supported_programs[type]:
                 (progName, citation) = utils.getProgramCitations(settings, prog)
                 #citation = "NA"
-                #try: 
-                #    citation = pub_dict[prog]
-                #except KeyError:
-                #    citation = "NA"
+                try: 
+                    citation = pub_dict[prog]
+                except KeyError:
+                    citation = "NA"
                 print "  %d)"%(ccnt)+" "+progName
                 print "    "+citation+"\n"
                 ccnt +=1
         sys.exit(0)
                 
     elif o in ("-u","--unassembledreads"):
-        annotate_unassembled = 1
+        utils.Settings.annotate_unmapped = 1
     elif o in ("-x","--xcov"):
         min_ctg_cvg = int(a)
     elif o in ("-l","--lencontigorf"):
@@ -382,7 +402,7 @@ for o, a in opts:
     elif o in ("-e","--endat"):
         endat = a
         if endat not in allsteps:
-            print "cannot end at %s, step does not exist in pipeline"%(endtat)
+            print "cannot end at %s, step does not exist in pipeline"%(endat)
             print allsteps 
         skipsteps.extend(allsteps[allsteps.index(endat)+1:])
     elif o in ("-o", "--minoverlap"):
@@ -390,7 +410,8 @@ for o, a in opts:
     elif o in ("-k", "--kmersize"):
         utils.Settings.kmer = int(a)
     elif o in ("-4", "--454"):
-        fff = "-454"
+       selected_programs["assemble"] = "newbler"
+       selected_programs["mapreads"] = "bowtie2"
     elif o in ("-f", "--forcesteps"):
         forcesteps = a.split(",")
     elif o in ("-n", "--skipsteps"):
@@ -408,7 +429,27 @@ for o, a in opts:
         run_fastqc = True
     elif o in ("-t", "--filter"):
         filter = True
-
+    elif o in ("-I", "--isolate"):
+        isolate_genome = True
+    elif o in ("-R", "--refgenomes"):
+        if not os.path.exists(a):
+            print "ref genome dir %s does not exist!"%(a)
+            usage()
+            sys.exit(1)
+        refgenomes = a
+    elif o in ("-M", "--multialigner"):
+        selected_programs["multialign"] = a.lower()
+        foundit = False
+        for sm in supported_aligners:
+            if selected_programs["multialign"] not in sm:
+                continue
+            else:
+                selected_programs["multialign"] = sm
+                foundit = True
+                break
+        if not foundit:
+            print "!!Sorry, %s is not a supported multi alignment method. Using mgcat instead"%(selected_programs["multialign"])
+            selected_programs["multialign"] = "mgcat"
     elif o in ("-m", "--mapper"):
         selected_programs["mapreads"] = a.lower()
         foundit = False
@@ -426,13 +467,13 @@ for o, a in opts:
     elif o in ("-r", "--retainBank"):
         retainBank = True
     elif o in ("-c", "--classifier"):
-        selected_programs["classify"] = a.lower()
+        selected_programs["annotate"] = a.lower()
         foundit = False
         for sc in supported_classifiers:
-            if selected_programs["classify"] not in sc:
+            if selected_programs["annotate"] not in sc:
                 continue
             else:
-                selected_programs["classify"] = sc
+                selected_programs["annotate"] = sc
                 foundit = True
                 break
         if sc == "metaphyler":
@@ -440,8 +481,8 @@ for o, a in opts:
             skipsteps.append("Propagate")
             skipsteps.append("Classify")
         if not foundit:
-            print "!!Sorry, %s is not a supported classification method. Using FCP instead"%(selected_programs["classify"])
-            selected_programs["classify"] = "fcp"
+            print "!!Sorry, %s is not a supported classification method. Using FCP instead"%(selected_programs["annotate"])
+            selected_programs["annotate"] = "fcp"
     elif o in ("-z", "--taxalevel"):
         utils.Settings.taxa_level = a.lower()
 
@@ -530,6 +571,8 @@ for o, a in opts:
         runfast = True
     elif o in ("-b","--savebowtieidx"):
         savebtidx = True
+    elif o in ("-L", "--localKrona"):
+        utils.Settings.local_krona = True
     else:
         assert False, "unhandled option"
 
@@ -538,9 +581,25 @@ if not os.path.exists(settings.rundir) or settings.rundir == "":
     usage()
     sys.exit(1)
 
+if (settings.noblastdb or noblastdb) and (selected_programs["annotate"] == "blast" or selected_programs["annotate"] == "fcp"):
+    print "**no DB directory available, cannot run blast or FCP for classification (model files in DB dir). replacing with phylosift!"
+    selected_programs["annotate"] = "phylosift"
+
 print "[Steps to be skipped]: ", skipsteps
 #remove started & ok flags in Logs
-os.system("rm %s%sLogs%s*.started"%(settings.rundir,os.sep,os.sep))
+if os.path.exists("%s%sLogs%s*.started"%(settings.rundir,os.sep,os.sep)):
+    os.system("rm %s%sLogs%s*.started"%(settings.rundir,os.sep,os.sep))
+
+if not isolate_genome:
+  skipsteps.append("MultiAlign")
+else:
+  try:
+      selected_programs["multialign"]
+      selected_programs["assemble"] = "velvet"
+  except KeyError:
+      skipsteps.append("MultiAlign")
+
+  
 #parse frag/libs out of pipeline.ini out of rundir
 inifile = settings.rundir+os.sep+"pipeline.ini"
 inf = open(inifile,'r')
@@ -738,24 +797,19 @@ if __name__ == "__main__":
     print "Starting metAMOS pipeline"
     if settings.threads < 1:
         settings.threads = 1
-    settings = utils.initConfig(settings.kmer, settings.threads, settings.rundir, settings.taxa_level, settings.VERBOSE, settings.OUTPUT_ONLY)
+    settings = utils.initConfig(settings.kmer, settings.threads, settings.rundir, settings.taxa_level, settings.local_krona, settings.annotate_unmapped, settings.VERBOSE, settings.OUTPUT_ONLY)
     # add krona to system path
     currPath = os.environ["PATH"]
     if utils.Settings.KRONA not in currPath:
        os.environ["PATH"]="%s:%s"%(utils.Settings.KRONA, currPath)
 
     # check for memory/cpu
-    if not nopsutil and lowmem == False:
-        cacheusage=0
-        if 'linux' in utils.Settings.OSTYPE.lower():
-            cacheusage = psutil.cached_phymem()
-        memusage =  `psutil.phymem_usage()`.split(",")
-        freemem = long(memusage[2].split("free=")[-1])+long(cacheusage)
-        percentfree = float(memusage[3].split("percent=")[-1].split(")")[0])
-        avram = (freemem/1000000000)
+    if not settings.nopsutil and lowmem == False:
+        import psutil
+
+        avram = utils.getAvailableMemory(settings)
         print "[Available RAM: %d GB]"%(avram)
         lowmem= False
-        nofcpblast = False
         if avram <= 32:
             print utils.WARNING_YELLOW+"\tThere is *%d GB of RAM currently available on this machine, suggested minimum of 32 GB"%(avram)+utils.ENDC
             print utils.WARNING_YELLOW+"\t*Enabling low MEM mode, might slow down some steps in pipeline"+utils.ENDC
@@ -763,6 +817,7 @@ if __name__ == "__main__":
             lowmem= True
         else:
             print utils.OK_GREEN+"\t*ok"+utils.ENDC
+    if not settings.nopsutil and nofcpblast == False:
         numcpus = psutil.NUM_CPUS
         print "[Available CPUs: %d]"%(numcpus)
         if numcpus < 8:
@@ -773,9 +828,16 @@ if __name__ == "__main__":
         else:
             print utils.OK_GREEN+"\t*ok"+utils.ENDC
 
+    if settings.nopysam:
+       #need pysam for bowtie2 support
+       supported_mappers = ["bowtie"]
+       if "bowtie2" == selected_programs["mapreads"]:
+          selected_programs["mapreads"] = "bowtie"
+
     import preprocess
     import assemble
     import mapreads
+    import multialign
     import findorfs
     import findreps
     import abundance
@@ -795,17 +857,35 @@ if __name__ == "__main__":
     mapreads.init(readlibs, skipsteps, selected_programs["assemble"], selected_programs["mapreads"], savebtidx,ctgbpcov,lowmem)
     findorfs.init(readlibs, skipsteps, selected_programs["assemble"], selected_programs["findorfs"], min_ctg_len, min_ctg_cvg,read_orfs)
     findreps.init(readlibs, skipsteps)
-    annotate.init(readlibs, skipsteps, selected_programs["classify"], nofcpblast, annotate_unassembled)
+    multialign.init(readlibs, skipsteps, forcesteps, selected_programs["multialign"],refgenomes)
+    annotate.init(readlibs, skipsteps, selected_programs["annotate"], nofcpblast)
     fannotate.init(skipsteps)
-    abundance.init(readlibs, skipsteps, forcesteps, selected_programs["classify"])
+    abundance.init(readlibs, skipsteps, forcesteps, selected_programs["annotate"])
     scaffold.init(readlibs, skipsteps, retainBank, selected_programs["assemble"])
     findscforfs.init(readlibs, skipsteps, selected_programs["findorfs"])
-    propagate.init(readlibs, skipsteps, selected_programs["classify"])
-    classify.init(readlibs, skipsteps, selected_programs["classify"])
-    postprocess.init(readlibs, skipsteps, selected_programs["classify"])
+    propagate.init(readlibs, skipsteps, selected_programs["annotate"])
+    classify.init(readlibs, skipsteps, selected_programs["annotate"], lowmem)
+    postprocess.init(readlibs, skipsteps, selected_programs["annotate"])
+    generic.init(skipsteps, readlibs)
 
     try:
+
        dlist = []
+       #pipeline_printout(sys.stdout,[preprocess.Preprocess],verbose=1)                                                                                                                           
+       tasks_to_run = ["preprocess.Preprocess"]
+
+       if "ASSEMBLE" in skipsteps or "Assemble" in skipsteps or "assemble" in skipsteps or "asm" in skipsteps:
+           pass
+       else:
+           tasks_to_run.append("assemble.Assemble")
+
+       if "FINDORFS" in skipsteps or "FindORFS" in skipsteps or "findorfs" in skipsteps:
+           pass
+       else:
+           tasks_to_run.append("findorfs.FindORFS")
+       tasks_to_run.append("postprocess.Postprocess")
+       #pipeline_printout(sys.stdout,tasks_to_run,verbose=2)                                                                                                                                      
+
        pipeline_printout(sys.stdout,[preprocess.Preprocess,assemble.Assemble, \
                          mapreads.MapReads, \
                          findorfs.FindORFS, findreps.FindRepeats, annotate.Annotate, \
@@ -819,9 +899,17 @@ if __name__ == "__main__":
                                [postprocess.Postprocess],
                                no_key_legend = True)
 
-       printConfiguration()
-       printConfiguration("%s/pipeline.run"%(settings.rundir))
+       if 1 or not utils.Settings.BINARY_DIST:
+           printConfiguration()
+           printConfiguration("%s/pipeline.run"%(settings.rundir))                                                                                                                                   
        updateCounter()
+       forcetasks = []
+       for item in forcesteps:
+           if "ASSEMBLE" in string.upper(item):
+               forcetasks.append("assemble.Assemble")
+
+            elif "FINDORFS" in string.upper(item):
+               forcetasks.append("findorfs.FindORFS")
 
        if(selected_programs["assemble"]!="allassemblers" and selected_programs["assemble"]!="multassemblers"):
           pipeline_run([preprocess.Preprocess, assemble.Assemble,findorfs.FindORFS, \
@@ -829,11 +917,11 @@ if __name__ == "__main__":
                        findreps.FindRepeats, annotate.Annotate, abundance.Abundance, \
                        fannotate.FunctionalAnnotation, scaffold.Scaffold, findscforfs.FindScaffoldORFS, \
                        propagate.Propagate, classify.Classify, postprocess.Postprocess],\
-                       verbose = 2)
+                       verbose = 1)
        else:
           #Modified pipeline to run multiple assemblers
           pipeline_run([preprocess.Preprocess],\
-                       verbose = 2)
+                       verbose = 1)
           assemblerScores={}
           bestAssembler=""
           bestScore=0
@@ -887,10 +975,10 @@ if __name__ == "__main__":
                   
               if bpctgcov:
                   pipeline_run([assemble.Assemble,mapreads.MapReads],\
-                           verbose = 2)
+                           verbose = 1)
               else:
                   pipeline_run([assemble.Assemble],\
-                           verbose = 2)
+                           verbose = 1)
               command= "python ../LAP/aligner/calc_prob.py -a %s/Assemble/out/%s.asm.contig %s > %s/Assemble/out/outputScore.prob"%(settings.rundir,settings.PREFIX,filereads,settings.rundir)
               #print command
               os.system(command)
@@ -924,13 +1012,13 @@ if __name__ == "__main__":
                        findreps.FindRepeats, annotate.Annotate, abundance.Abundance, \
                        fannotate.FunctionalAnnotation, scaffold.Scaffold, findscforfs.FindScaffoldORFS, \
                        propagate.Propagate, classify.Classify, postprocess.Postprocess],\
-                       verbose = 2)
+                       verbose = 1)
           else:
               pipeline_run([mapreads.MapReads,findorfs.FindORFS, \
                        findreps.FindRepeats, annotate.Annotate, abundance.Abundance, \
                        fannotate.FunctionalAnnotation, scaffold.Scaffold, findscforfs.FindScaffoldORFS, \
                        propagate.Propagate, classify.Classify, postprocess.Postprocess],\
-                       verbose = 2)
+                       verbose = 1)
 
        #multiprocess threads
        t2 = time.time()

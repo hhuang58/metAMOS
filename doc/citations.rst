@@ -15,6 +15,7 @@ blast	BLAST	Altschul SF, Gish W, Miller W, Myers EW, Lipman DJ. Basic local alig
 phmmer	PHMMER	Eddy SR. Accelerated Profile HMM Searches. PLoS Comput Biol. 2011 Oct;7(10):e1002195. Epub 2011 Oct 20.
 phymm	PHYMM	Brady A, Salzberg SL. PhymmBL expanded: confidence scores, custom databases, parallelization and more. Nat Methods. 2011 May;8(5):367.
 phylosift	PhyloSift	http://phylosift.wordpress.com/
+mgcat	M-GCAT	Treangen TJ, Messeguer X. M-GCAT: interactively and efficiently constructing large-scale multiple genome comparison frameworks in closely related species. BMC Bioinformatics, 2006.
 minimus	Minimus	Sommer DD, Delcher AL, Salzberg SL, Pop M. Minimus: a fast, lightweight genome assembler. BMC Bioinformatics. 2007 Feb 26;8:64.
 glimmermg	Glimmer-MG	Kelley DR, Liu B, Delcher AL, Pop M, Salzberg SL. Gene prediction with Glimmer for metagenomic sequences augmented by classification and clustering. Nucleic Acids Res. 2012 Jan;40(1):e9. Epub 2011 Nov 18.
 samtools	SAMtools	Li H., Handsaker B.*, Wysoker A., Fennell T., Ruan J., Homer N., Marth G., Abecasis G., Durbin R. and 1000 Genome Project Data Processing Subgroup (2009) The Sequence alignment/map (SAM) format and SAMtools. Bioinformatics, 25, 2078-9
@@ -23,3 +24,4 @@ metaphyler	MetaPhyler	Liu B, Gibbons T, Ghodsi M, Treangen T, Pop M. Accurate an
 newbler	Newbler
 velvet-sc	Velvet-SC	Chitsaz H, Yee-Greenbaum JL, Tesler G, Lombardo MJ, Dupont CL, Badger JH, Novotny M, Rusch DB, Fraser LJ, Gormley NA, Schulz-Trieglaff O, Smith GP, Evers DJ, Pevzner PA, Lasken RL. Efficient de novo assembly of single-cell bacterial genomes from short-read data sets. Nature Biotechnology, vol. 29, no. 11, pp. 915-921 (2011) 
 krona	Krona	Ondov BD, Bergman NH, Phillippy AM. Interactive metagenomic visualization in a Web browser. BMC Bioinformatics. 2011 Sep 30;12:385.
+spades	SPAdes	Anton Bankevich, Sergey Nurk, Dmitry Antipov, Alexey A. Gurevich, Mikhail Dvorkin, Alexander S. Kulikov, Valery M. Lesin, Sergey I. Nikolenko, Son Pham, Andrey D. Prjibelski, Alexey V. Pyshkin, Alexander V. Sirotkin, Nikolay Vyahhi, Glenn Tesler, Max A. Alekseyev, and Pavel A. Pevzner. Journal of Computational Biology. May 2012, 19(5): 455-477. doi:10.1089/cmb.2012.0021.

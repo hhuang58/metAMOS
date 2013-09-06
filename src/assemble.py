@@ -8,6 +8,8 @@ from preprocess import Preprocess
 sys.path.append(INITIAL_UTILS)
 from ruffus import *
 
+import generic
+
 _readlibs = []
 _skipsteps = []
 _settings = Settings()
@@ -51,7 +53,7 @@ def extractNewblerReads():
           run_process(_settings, "rm %s/Preprocess/out/lib%d.noPairs.sff"%(_settings.rundir, lib.id), "Assemble")
        elif lib.mated:
           run_process(_settings, "echo \"library\t%s\t%d\t%d\" >> %s/Preprocess/out/all.seq.mates"%(lib.sid, lib.mmin, lib.mmax, _settings.rundir), "Assemble")
-          run_process(_settings, "cat %s/Preprocess/out/lib%d.seq.mates >> %s/Preprocess/out/all.seq.mates"%(_settings.rundir, lib.id, _settings.rundir), "Assemble")
+          run_process(_settings, "cat %s/Preprocess/out/lib%d.seq.mates |awk '{print $0\"\t%s\"}' >> %s/Preprocess/out/all.seq.mates"%(_settings.rundir, lib.id, lib.sid, _settings.rundir), "Assemble")
 
 def getVelvetGCommand(velvetPath):
    CATEGORIES = 0.0;
@@ -262,12 +264,14 @@ def Assemble(input,output):
          print "Error: SOAPdenovo not found in %s. Please check your path and try again.\n"%(_settings.SOAPDENOVO)
          raise(JobSignalledBreak)
 
-      soapOptions = getProgramParams(_settings.METAMOS_UTILS, "soap.spec", "", "-") 
+      soapOptions = getProgramParams(_settings.METAMOS_UTILS, "soap.spec", "pregraph", "-") 
+      soapContigOptions = getProgramParams(_settings.METAMOS_UTILS, "soap.spec", "contig", "-")
+
       #start stopwatch
       if _settings.kmer > 63:
           
-          run_process(_settings, "%s/soap127 pregraph -p %d -d -K %d %s -s %s/soapconfig.txt -o %s/Assemble/out/%s.asm"%(_settings.SOAPDENOVO, _settings.threads, _settings.kmer, soapOptions, _settings.rundir,_settings.rundir,_settings.PREFIX),"Assemble")#SOAPdenovo config.txt
-          run_process(_settings, "%s/soap127 contig -g %s/Assemble/out/%s.asm -R -M 3"%(_settings.SOAPDENOVO,_settings.rundir,_settings.PREFIX),"Assemble")#SOAPdenovo config.txt
+          run_process(_settings, "%s/soap127 pregraph -p %d %d %s -s %s/soapconfig.txt -o %s/Assemble/out/%s.asm"%(_settings.SOAPDENOVO, _settings.threads, _settings.kmer, soapOptions, _settings.rundir,_settings.rundir,_settings.PREFIX),"Assemble")#SOAPdenovo config.txt
+          run_process(_settings, "%s/soap127 contig -g %s/Assemble/out/%s.asm %s"%(_settings.SOAPDENOVO,_settings.rundir,_settings.PREFIX, soapContigOptions),"Assemble")#SOAPdenovo config.txt
       else:
           
           run_process(_settings, "%s/SOAPdenovo-63mer pregraph -p %d -d -K %d %s -s %s/soapconfig.txt -o %s/Assemble/out/%s.asm"%(_settings.SOAPDENOVO, _settings.threads, _settings.kmer, soapOptions, _settings.rundir,_settings.rundir,_settings.PREFIX),"Assemble")#SOAPdenovo config.txt
@@ -384,10 +388,10 @@ def Assemble(input,output):
       runVelvet(_settings.VELVET_SC, "velvet-sc")
    elif _asm == "metavelvet":
       runMetaVelvet(_settings.VELVET, _settings.METAVELVET, "metavelvet")
-   elif _asm.lower() == "spades":
-      print "Warning: SPades is not yet supported. Stay Tuned!"
    elif _asm.lower() == "sparseassembler":
       runSparseAssembler(_settings.SPARSEASSEMBLER, "SparseAssembler");
+   elif generic.checkIfExists(STEP_NAMES.ASSEMBLE, _asm.lower()):
+      generic.execute(STEP_NAMES.ASSEMBLE, _asm.lower())
    else:  
       print "Error: %s is an unknown assembler. No valid assembler specified."%(_asm)
       raise(JobSignalledBreak)
