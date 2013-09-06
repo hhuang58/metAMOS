@@ -120,10 +120,10 @@ if not os.path.exists("./LAP"):
     else:
        dl = raw_input("Enter Y/N: ")
     if dl == 'y' or dl == 'Y':
-        os.system("curl http://www.cbcb.umd.edu/~cmhill/files/lap_release_1.zip -o lap_release_1.zip")
-        os.system("unzip lap_release_1.zip")
-        os.system("mv ./lap_release_1 ./LAP")
-	os.system("rm -rf lap_release_1.zip")
+        os.system("curl http://www.cbcb.umd.edu/~cmhill/files/lap_release_1.1.zip -o lap_release_1.1.zip")
+        os.system("unzip lap_release_1.1.zip")
+        os.system("mv ./lap_release_1.1 ./LAP")
+	os.system("rm -rf lap_release_1.1.zip")
 
 #check for DBs, etc
 if not os.path.exists("./Utilities/cpp/%s-%s/metaphylerClassify"%(OSTYPE, MACHINETYPE)) or not os.path.exists("./Utilities/perl/metaphyler/markers/markers.protein") or not os.path.exists("./Utilities/perl/metaphyler/markers/markers.dna"):
@@ -138,6 +138,8 @@ if not os.path.exists("./Utilities/cpp/%s-%s/metaphylerClassify"%(OSTYPE, MACHIN
         os.system("curl -L http://metaphyler.cbcb.umd.edu/MetaPhylerV1.25.tar.gz -o metaphyler.tar.gz")
         os.system("tar -C ./Utilities/perl/ -xvf metaphyler.tar.gz")
         os.system("mv ./Utilities/perl/MetaPhylerV1.25 ./Utilities/perl/metaphyler")
+        os.system("mv ./Utilities/perl/metaphyler/installMetaphyler.pl ./Utilities/perl/metaphyler/installMetaphylerFORMATDB.pl");
+        os.system("cat ./Utilities/perl/metaphyler/installMetaphylerFORMATDB.pl  |sed 's/formatdb/\.\/Utilities\/cpp\/%s-%s\/formatdb/g' > ./Utilities/perl/metaphyler/installMetaphyler.pl"%(OSTYPE, MACHINETYPE));
         os.system("perl ./Utilities/perl/metaphyler/installMetaphyler.pl")
         os.system("cp ./Utilities/perl/metaphyler/metaphylerClassify ./Utilities/cpp/%s-%s/metaphylerClassify"%(OSTYPE, MACHINETYPE))
         #os.system("cp ./Utilities/perl/metaphyler/metaphylerClassify ./Utilities/cpp/%s-%s/metaphylerClassify"%(OSTYPE, MACHINETYPE))
@@ -205,27 +207,31 @@ if not os.path.exists("./Utilities/glimmer-mg"):
 
 # check the number of files the DB currently is and see if we have the expected number
 dbResult = utils.getCommandOutput("perl ./Utilities/perl/update_blastdb.pl refseq_protein --numpartitions", False)
-(dbName, numPartitions) = dbResult.split("\t", 1) 
-print "Checking whether %s is complete. Expecting %d partitions.\n"%(dbName, int(numPartitions))
-numPartitions = int(numPartitions) - 1
-if not os.path.exists("./Utilities/DB/refseq_protein.pal") or not os.path.exists("./Utilities/DB/refseq_protein.%02d.psq"%(int(numPartitions))) or not os.path.exists("./Utilities/DB/allprots.faa"):
-    print "refseq protein DB not found or incomplete, needed for Annotate step, download now?"
-    if silentInstall:
-       dl = 'y'
-    elif lightInstall:
-       dl = 'n'
-    else:
-       dl = raw_input("Enter Y/N: ")
-    if dl == 'y' or dl == 'Y':
-        print "Download and install refseq protein DB.."
-        os.system("perl ./Utilities/perl/update_blastdb.pl refseq_protein")
-        os.system("mv refseq_protein.*.tar.gz ./Utilities/DB/")
+if dbResult == "":
+   print "Error: could not connect to NCBI, will not be installing refseq protein DB"
+else:
+   (dbName, numPartitions) = dbResult.split("\t", 1) 
+   print "Checking whether %s is complete. Expecting %d partitions.\n"%(dbName, int(numPartitions))
+   numPartitions = int(numPartitions) - 1
+
+   if not os.path.exists("./Utilities/DB/refseq_protein.pal") or not os.path.exists("./Utilities/DB/refseq_protein.%02d.psq"%(int(numPartitions))) or not os.path.exists("./Utilities/DB/allprots.faa"):
+       print "refseq protein DB not found or incomplete, needed for Annotate step, download now?"
+       if silentInstall:
+          dl = 'y'
+       elif lightInstall:
+          dl = 'n'
+       else:
+          dl = raw_input("Enter Y/N: ")
+       if dl == 'y' or dl == 'Y':
+           print "Download and install refseq protein DB.."
+           os.system("perl ./Utilities/perl/update_blastdb.pl refseq_protein")
+           os.system("mv refseq_protein.*.tar.gz ./Utilities/DB/")
        
-        fileList = glob.glob("./Utilities/DB/refseq_protein.*.tar.gz") 
-        for file in fileList:
-           os.system("tar -C ./Utilities/DB/ -xvf %s"%(file))
-        print "    running fastacmd (might take a few min)..."
-        os.system(".%sUtilities%scpp%s%s-%s%sfastacmd -d ./Utilities/DB/refseq_protein -p T -a T -D 1 -o ./Utilities/DB/allprots.faa"%(os.sep, os.sep, os.sep, OSTYPE, MACHINETYPE, os.sep))
+           fileList = glob.glob("./Utilities/DB/refseq_protein.*.tar.gz") 
+           for file in fileList:
+              os.system("tar -C ./Utilities/DB/ -xvf %s"%(file))
+           print "    running fastacmd (might take a few min)..."
+           os.system(".%sUtilities%scpp%s%s-%s%sfastacmd -d ./Utilities/DB/refseq_protein -p T -a T -D 1 -o ./Utilities/DB/allprots.faa"%(os.sep, os.sep, os.sep, OSTYPE, MACHINETYPE, os.sep))
 
 if not os.path.exists("./AMOS") or 0:
     print "AMOS binaries not found, needed for all steps, download now?"
@@ -320,6 +326,7 @@ if 1:
              print "Warning: Cannot install pysam on your system. Please install LLVM compiler first."
              doInstall=False
        if doInstall:
+          os.system("python setup.py build_ext --inplace")
           os.system("python setup.py build")
           os.system("python setup.py install --home=%spython"%(utils.INITIAL_UTILS+os.sep))
        os.chdir(METAMOS_ROOT)
@@ -327,10 +334,36 @@ if 1:
        #os.system("ln -s %s/Utilities/python/taxonomy.txt %s/Utilities/models/taxonomy.txt"%(sys.path[0], sys.path[0]))
 
 #WARNING: matplotlib causes install issues for multiple users
+   fail = 0
+   try:
+       import numpy
+   except ImportError:
+       print "numpy python modules not found, necessary for html report, download now?"
+       fail = 1
+
+   if not fail or silentInstall:
+       dl = 'y'
+   elif lightInstall:
+       dl = 'y'
+   else:
+       dl = raw_input("Enter Y/N: ")
+   if fail and (dl == 'y' or dl == "Y"):
+       os.system("curl -L http://downloads.sourceforge.net/project/numpy/NumPy/1.7.1/numpy-1.7.1.tar.gz -o ./numpy.tar.gz")
+       os.system("tar -C ./Utilities/python -xvf numpy.tar.gz")
+       os.system("mv ./Utilities/python/numpy-1.7.1 ./Utilities/python/numpy")
+       os.chdir("./Utilities/python/numpy")
+       os.system("python setup.py install --home=%spython"%(utils.INITIAL_UTILS+os.sep))
+       os.chdir(METAMOS_ROOT)
+       os.system("rm -rf numpy.tar.gz")
+
 if 1:
    fail = 0
    try:
        import matplotlib
+       print "Found matplot lib version %s from %s\n"%(matplotlib.__version__, matplotlib.__file__)
+       if (matplotlib.__version__ < "1.1.0"):
+          print "Matplot lib version %s is incompatible with metAMOS. Need version 1.1.0+, download now?"%(matplotlib.__version__) 
+          fail = 1
    except ImportError:
        print "matplotlib python modules not found, necessary for html report, download now?"
        fail = 1
@@ -342,15 +375,15 @@ if 1:
    else:
        dl = raw_input("Enter Y/N: ")
    if fail and (dl == 'y' or dl == "Y"):
-       os.system("curl -L http://downloads.sourceforge.net/project/matplotlib/matplotlib/matplotlib-1.2.0/matplotlib-1.2.0.tar.gz -o ./matplotlib.tar.gz")
+       os.system("curl -L http://downloads.sourceforge.net/project/matplotlib/matplotlib/matplotlib-1.1.0/matplotlib-1.1.0.tar.gz -o ./matplotlib.tar.gz")
        os.system("tar -C ./Utilities/python -xvf matplotlib.tar.gz")
-       os.system("mv ./Utilities/python/matplotlib-1.2.0 ./Utilities/python/matplotlib")
+       os.system("mv ./Utilities/python/matplotlib-1.1.0 ./Utilities/python/matplotlib")
        os.chdir("./Utilities/python/matplotlib")
        os.system("python setup.py install --home=%spython"%(utils.INITIAL_UTILS+os.sep))
        os.chdir(METAMOS_ROOT)
        os.system("rm -rf matplotlib.tar.gz")
 
-if not os.path.exists("./phylosift"):
+if not os.path.exists("./phylosift") or not os.path.exists("./phylosift/legacy/version.pm") or not os.path.exists("./phylosift/lib/Params"):
    print "PhyloSift binaries not found, optional for Annotate step, download now?"
    if silentInstall:
       dl = 'y'
@@ -359,10 +392,29 @@ if not os.path.exists("./phylosift"):
    else:
       dl = raw_input("Enter Y/N: ")
    if dl == 'y' or dl == 'Y':
-      #phylosift OSX binaries included inside Linux X86_64 tarball..
-      os.system("curl -L ftp://ftp.cbcb.umd.edu/pub/data/metamos/phylosift-Linux-x86_64-20120523.tar.bz2 -o ./phylosift.tar.bz2")
-      os.system("tar -xvjf phylosift.tar.bz2")
-      os.system("rm -rf phylosift.tar.bz2")
+      if not os.path.exists("./phylosift"): 
+         #phylosift OSX binaries included inside Linux X86_64 tarball..
+         #os.system("curl -L http://edhar.genomecenter.ucdavis.edu/~koadman/phylosift/releases/phylosift_v1.0.0_01.tar.bz2 -o ./phylosift.tar.bz2")
+         os.system("curl -L http://edhar.genomecenter.ucdavis.edu/~koadman/phylosift/devel/phylosift_20130829.tar.bz2 -o ./phylosift.tar.bz2")
+         os.system("tar -xvjf phylosift.tar.bz2")
+         os.system("rm -rf phylosift.tar.bz2")
+         os.system("mv phylosift_20130829 phylosift")
+
+      if not os.path.exists("./phylosift/legacy/version.pm"):
+         #phylosift needs version but doesn't include it
+         os.system("curl -L http://www.cpan.org/authors/id/J/JP/JPEACOCK/version-0.9903.tar.gz -o version.tar.gz")
+         os.system("tar xvzf version.tar.gz")
+         os.chdir("./version-0.9903/")
+         os.system("perl Makefile.PL")
+         os.system("make")
+         os.system("cp -r blib/lib/* ../phylosift/lib")
+         os.chdir(METAMOS_ROOT)
+         os.system("rm -rf version.tar.gz")
+         os.system("rm -rf version-0.9903")
+      if not os.path.exists("./phylosift/lib/Params"):
+         os.system("curl -L ftp://ftp.cbcb.umd.edu/pub/data/metamos/params-validate.tar.gz -o ./params-validate.tar.gz")
+         os.system("tar xvzf params-validate.tar.gz") 
+         os.system("rm -rf params-validate.tar.gz")
 
 if not os.path.exists("./CA") or 0:
    print "Celera Assembler binaries not found, optional for Assemble step, download now?"
@@ -453,7 +505,28 @@ os.system("python setup.py install_scripts --install-dir=`pwd` build_ext")
 os.system("mv runPipeline.py runPipeline")
 os.system("mv initPipeline.py initPipeline")
 
-validate_install = 1
+#remove imports from pth file, if exists                                                                                                                                                          
+nf = []
+try:
+    dir1 = utils.INITIAL_UTILS+os.sep+"python"+os.sep+"lib"+os.sep+"python"
+    if not os.path.exists(dir1+os.sep+"easy-install.pth"):
+        dir1 = utils.INITIAL_UTILS+os.sep+"python"+os.sep+"lib64"+os.sep+"python"
+
+    nf = open(dir1+os.sep+"easy-install.pth",'r')
+    ndata = []
+    for line in nf.xreadlines():
+        if "import" in line:
+            continue
+        ndata.append(line)
+    nf.close()
+    nfo = open(dir1+os.sep+"easy-install.pth",'w')
+    for line in ndata:
+        nfo.write(line)
+    nfo.close()
+except IOError:
+    pass
+
+validate_install = 0
 if validate_install:
     rt = check_install.validate_dir(METAMOS_ROOT,'required_file_list.txt')
     if rt == -1:
